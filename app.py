@@ -2,10 +2,13 @@ from flask import Flask, request, jsonify
 import numpy as np
 import cv2
 from ultralytics import YOLO
+import time
 
 app = Flask(__name__)
 
+# Load model once
 model = YOLO("yolov8n.pt")
+model.fuse()
 
 @app.route("/")
 def home():
@@ -13,34 +16,37 @@ def home():
 
 @app.route("/esp", methods=["POST"])
 def esp():
-
     try:
-        # Read raw bytes
-        img_array = np.frombuffer(request.data, np.uint8)
+        start = time.time()
 
-        # Decode image safely
+        # Convert raw bytes → image
+        img_array = np.frombuffer(request.data, np.uint8)
         img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
-        # 🔴 IMPORTANT CHECK
         if img is None:
-            print("❌ Image decode failed")
+            print("Decode failed")
             return jsonify({"human": 0})
 
-        # Run YOLO
+        # Resize for speed (VERY IMPORTANT)
+        img = cv2.resize(img, (320, 240))
+
+        # YOLO inference
         results = model(img, verbose=False)
 
-        # Detect person class (COCO = 0)
+        human = 0
+
         for r in results:
             for box in r.boxes:
                 cls = int(box.cls[0])
                 conf = float(box.conf[0])
 
                 if cls == 0 and conf > 0.5:
-                    print("✅ HUMAN DETECTED")
-                    return jsonify({"human": 1})
+                    human = 1
+                    break
 
-        print("❌ No human")
-        return jsonify({"human": 0})
+        print(f"Result: {human} | Time: {round(time.time()-start,2)}s")
+
+        return jsonify({"human": human})
 
     except Exception as e:
         print("ERROR:", str(e))
