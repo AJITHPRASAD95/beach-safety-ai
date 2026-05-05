@@ -1,29 +1,51 @@
 from flask import Flask, request, jsonify
 import numpy as np
 import cv2
-import os
 from ultralytics import YOLO
 
 app = Flask(__name__)
 
 model = YOLO("yolov8n.pt")
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    img = np.frombuffer(request.data, np.uint8)
-    img = cv2.imdecode(img, cv2.IMREAD_COLOR)
+@app.route("/")
+def home():
+    return "YOLO API running"
 
-    results = model(img, verbose=False)
+@app.route("/esp", methods=["POST"])
+def esp():
 
-    human = 0
-    for r in results:
-        for box in r.boxes:
-            if int(box.cls[0]) == 0:  # person class
-                human = 1
-                break
+    try:
+        # Read raw bytes
+        img_array = np.frombuffer(request.data, np.uint8)
 
-    return jsonify({"human": human})
+        # Decode image safely
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        # 🔴 IMPORTANT CHECK
+        if img is None:
+            print("❌ Image decode failed")
+            return jsonify({"human": 0})
+
+        # Run YOLO
+        results = model(img, verbose=False)
+
+        # Detect person class (COCO = 0)
+        for r in results:
+            for box in r.boxes:
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])
+
+                if cls == 0 and conf > 0.5:
+                    print("✅ HUMAN DETECTED")
+                    return jsonify({"human": 1})
+
+        print("❌ No human")
+        return jsonify({"human": 0})
+
+    except Exception as e:
+        print("ERROR:", str(e))
+        return jsonify({"human": 0})
+
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
